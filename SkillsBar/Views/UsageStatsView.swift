@@ -3,6 +3,8 @@ import SwiftUI
 private let cardBackground = Color.primary.opacity(0.10)
 private let cardRadius: CGFloat = 12
 private let maxUsageRows = 10
+private let usageTooltipWidth: CGFloat = 148
+private let usageTooltipEdgePadding: CGFloat = 8
 
 private enum UsageStatsRange: String, CaseIterable, Identifiable {
     case thirtyDays
@@ -112,10 +114,14 @@ struct UsageStatsView: View {
                     .lineSpacing(2)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 7)
+                    .frame(width: usageTooltipWidth, alignment: .leading)
                     .background(.regularMaterial)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .shadow(color: Color.black.opacity(0.18), radius: 10, y: 4)
-                    .offset(x: hoveredUsageFrame.midX - 74, y: max(8, hoveredUsageFrame.minY - 76))
+                    .offset(
+                        x: usageTooltipXOffset(for: hoveredUsageFrame),
+                        y: max(usageTooltipEdgePadding, hoveredUsageFrame.minY - 76)
+                    )
                     .allowsHitTesting(false)
             }
         }
@@ -531,6 +537,12 @@ struct UsageStatsView: View {
         if hoveredUsageHelp == help {
             hoveredUsageFrame = frame
         }
+    }
+
+    private func usageTooltipXOffset(for frame: CGRect) -> CGFloat {
+        let centeredOffset = frame.midX - (usageTooltipWidth / 2)
+        let maximumOffset = SkillsBarLayout.windowWidth - usageTooltipWidth - usageTooltipEdgePadding
+        return min(max(centeredOffset, usageTooltipEdgePadding), maximumOffset)
     }
 
     private func rowCaption(for stat: SkillUsageStat) -> String {
