@@ -327,6 +327,9 @@ struct ProjectSkillsView: View {
                 Button("Create .claude/skills Folder") {
                     createProjectSkillsFolder(for: root)
                 }
+                Button("Create .pi/skills Folder") {
+                    createProjectSkillsFolder(for: root, at: root.piSkillsPath)
+                }
             }
             Divider()
             Button("Refresh Skills") {
@@ -341,10 +344,17 @@ struct ProjectSkillsView: View {
             Button("Open in Codex") {
                 SkillStore.openProjectInCodex(root)
             }
+            Button("Open in Pi") {
+                SkillStore.openProjectInPi(root)
+            }
             Button("Open .claude/skills") {
                 SkillStore.openProjectSkillsFolder(root, in: preferredEditor)
             }
             .disabled(status == .missingProjectFolder || status == .missingSkillsFolder)
+            Button("Open .pi/skills") {
+                SkillStore.openProjectPiSkillsFolder(root, in: preferredEditor)
+            }
+            .disabled(status == .missingProjectFolder || !FileManager.default.fileExists(atPath: root.piSkillsPath))
             Button("Open .claude/agents") {
                 SkillStore.openProjectAgentsFolder(root, in: preferredEditor)
             }
@@ -357,6 +367,10 @@ struct ProjectSkillsView: View {
                 SkillStore.revealProjectSkillsFolderInFinder(root)
             }
             .disabled(status == .missingProjectFolder || status == .missingSkillsFolder)
+            Button("Reveal .pi/skills") {
+                SkillStore.revealProjectPiSkillsFolderInFinder(root)
+            }
+            .disabled(status == .missingProjectFolder || !FileManager.default.fileExists(atPath: root.piSkillsPath))
             Divider()
             Button("Remove Project", role: .destructive) {
                 skillStore.removeProjectSkillRoot(root)
@@ -631,7 +645,7 @@ struct ProjectSkillsView: View {
     private func projectInstructionsCard(root: ProjectSkillRoot, instructions: [ProjectInstructionFile]) -> some View {
         projectItemsCard(title: "PROJECT INSTRUCTIONS", count: instructions.count, tint: .purple) {
             if instructions.isEmpty {
-                projectEmptyText("No CLAUDE.md, AGENTS.md, or .codex/AGENTS.md found.")
+                projectEmptyText("No CLAUDE.md, AGENTS.md, .codex/AGENTS.md, or AGENTS.override.md found.")
             } else {
                 ForEach(Array(instructions.enumerated()), id: \.element.id) { index, instruction in
                     if index > 0 {
@@ -723,10 +737,7 @@ struct ProjectSkillsView: View {
         let isProjectPinned = skillStore.isProjectPinned(skill, in: root)
 
         return HStack(spacing: 10) {
-            Image(skill.source.iconName)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 18, height: 18)
+            SkillSourceIcon(source: skill.source)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -808,7 +819,8 @@ struct ProjectSkillsView: View {
             fileManager.fileExists(atPath: (root.path as NSString).appendingPathComponent(kind.relativePath))
         }.count
         let agentCount = AgentScanner().scanProjectAgents(in: root).count
-        let missingSkillsFolder = !fileManager.fileExists(atPath: root.claudeSkillsPath)
+        // Missing only when the project carries none of .claude/skills, .pi/skills, .agents/skills.
+        let missingSkillsFolder = !root.skillDirectoryPaths.contains { fileManager.fileExists(atPath: $0) }
 
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 8) {
@@ -879,7 +891,9 @@ struct ProjectSkillsView: View {
 
         let root = ProjectSkillRoot(path: url.path)
         pendingProjectRoot = root
-        pendingProjectSkillCount = SkillScanner().scanClaudeCodeProjectSkills(in: root).count
+        let scanner = SkillScanner()
+        pendingProjectSkillCount = scanner.scanClaudeCodeProjectSkills(in: root).count
+            + scanner.scanPiProjectSkills(in: root).count
     }
 
     private func createCollection(from root: ProjectSkillRoot) {
@@ -887,9 +901,10 @@ struct ProjectSkillsView: View {
         showActionMessage("Created \(collection.name)")
     }
 
-    private func createProjectSkillsFolder(for root: ProjectSkillRoot) {
-        if skillStore.createProjectSkillsFolder(for: root) {
-            showActionMessage("Created .claude/skills")
+    private func createProjectSkillsFolder(for root: ProjectSkillRoot, at directory: String? = nil) {
+        let target = directory ?? root.claudeSkillsPath
+        if skillStore.createProjectSkillsFolder(for: root, at: target) {
+            showActionMessage("Created \(skillStore.projectRelativeLabel(for: target, in: root))")
         } else {
             showActionMessage("Could not create folder")
         }
@@ -1130,9 +1145,14 @@ struct ProjectSkillsView: View {
         case .disabled:
             return "Paused. Enable it to scan this project."
         case .available:
-            return "\(projectSkillCountLabel(skillCount)) from .claude/skills"
+            // Skills can come from .claude/skills, .pi/skills, or .agents/skills.
+            let directories = root.skillDirectoryPaths
+                .filter { FileManager.default.fileExists(atPath: $0) }
+                .map { skillStore.projectRelativeLabel(for: $0, in: root) }
+            guard !directories.isEmpty else { return projectSkillCountLabel(skillCount) }
+            return "\(projectSkillCountLabel(skillCount)) from \(directories.joined(separator: ", "))"
         case .missingSkillsFolder:
-            return "Project exists, but .claude/skills is missing."
+            return "Project exists, but no .claude/skills, .pi/skills, or .agents/skills folder."
         case .missingProjectFolder:
             return "Project folder is unavailable."
         }

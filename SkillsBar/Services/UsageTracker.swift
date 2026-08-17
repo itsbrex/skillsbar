@@ -151,6 +151,7 @@ final class UsageTracker: ObservableObject {
             "\(home)/.claude/projects",
             "\(home)/.codex/history.jsonl",
             "\(home)/.codex/sessions",
+            "\(home)/.pi/agent/sessions",
         ].filter { fileManager.fileExists(atPath: $0) }
 
         watcher = FSEventsWatcher(paths: watchPaths) { [weak self] _ in
@@ -197,8 +198,16 @@ final class UsageTracker: ObservableObject {
             Self.refreshCachedFile(at: filePath, parser: Self.parseCodexDesktopSessionFile, cache: &cache, fileManager: fileManager)
         }
 
+        for filePath in Self.piSessionPaths(home: home, fileManager: fileManager) {
+            Self.refreshCachedFile(at: filePath, parser: Self.parsePiSessionFile, cache: &cache, fileManager: fileManager)
+        }
+
         cache.lastFullScanDate = Date()
         return cache
+    }
+
+    nonisolated private static func piSessionPaths(home: String, fileManager: FileManager) -> [String] {
+        jsonlFilePathsRecursively(in: "\(home)/.pi/agent/sessions", fileManager: fileManager)
     }
 
     nonisolated private static func claudeTranscriptPaths(home: String, fileManager: FileManager) -> [String] {
@@ -350,6 +359,86 @@ final class UsageTracker: ObservableObject {
         }
 
         return invocations
+    }
+
+    // MARK: - Parse Pi Session File
+
+    /// Pi wraps an invoked skill in a user message that begins with
+    /// `<skill name="..." location="...">`, so invocations are read exactly rather than
+    /// guessed from prose. The literal form is pi's own `parseSkillBlock` regex.
+    nonisolated private static func parsePiSessionFile(at path: String) -> [SkillInvocation] {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let string = try container.decode(String.self)
+            if let date = iso8601WithFractional.date(from: string) { return date }
+            if let date = iso8601Plain.date(from: string) { return date }
+            return Date.distantPast
+        }
+
+        // Fall back to the filename's UUID suffix when the session header is missing.
+        var sessionId = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        if let underscoreIndex = sessionId.lastIndex(of: "_") {
+            sessionId = String(sessionId[sessionId.index(after: underscoreIndex)...])
+        }
+        var projectPath: String?
+        var invocations: [SkillInvocation] = []
+
+        readJSONLines(at: path) { line in
+            guard let entry = try? decoder.decode(PiSessionLine.self, from: line) else { return }
+
+            if entry.type == "session" {
+                if let id = entry.id { sessionId = id }
+                if let cwd = entry.cwd { projectPath = cwd }
+                return
+            }
+
+            guard entry.type == "message",
+                  let message = entry.message,
+                  message.role == "user",
+                  let blocks = message.content else {
+                return
+            }
+
+            for block in blocks {
+                guard let text = block.text,
+                      let block = parsePiSkillBlock(text),
+                      let skillName = normalizedSkillName(block.name, source: .pi) else {
+                    continue
+                }
+
+                invocations.append(SkillInvocation(
+                    source: .pi,
+                    skillName: skillName,
+                    args: block.args,
+                    timestamp: entry.timestamp ?? Date.distantPast,
+                    sessionId: sessionId,
+                    projectPath: projectPath
+                ))
+            }
+        }
+
+        return invocations
+    }
+
+    /// Reads the skill name and any trailing user arguments out of a pi skill block.
+    nonisolated private static func parsePiSkillBlock(_ text: String) -> (name: String, args: String?)? {
+        let opening = "<skill name=\""
+        guard text.hasPrefix(opening) else { return nil }
+
+        let afterOpening = text.index(text.startIndex, offsetBy: opening.count)
+        guard let nameEnd = text[afterOpening...].firstIndex(of: "\"") else { return nil }
+        let name = String(text[afterOpening..<nameEnd])
+        guard !name.isEmpty else { return nil }
+
+        // Anything after the closing tag is the user's arguments.
+        var args: String?
+        if let closing = text.range(of: "</skill>", options: .backwards) {
+            let trailing = text[closing.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            args = trailing.isEmpty ? nil : trailing
+        }
+
+        return (name, args)
     }
 
     // MARK: - Parse Codex History
@@ -804,6 +893,12 @@ final class UsageTracker: ObservableObject {
                 return String(trimmed.dropFirst())
             }
             return trimmed
+        case .pi:
+            // Skill rows carry "/skill:<name>"; session markers carry the bare name.
+            if trimmed.hasPrefix("/skill:") {
+                return String(trimmed.dropFirst("/skill:".count))
+            }
+            return trimmed
         }
     }
 
@@ -817,6 +912,8 @@ final class UsageTracker: ObservableObject {
             return .claudeCode
         case .codexCLI:
             return .codexCLI
+        case .pi:
+            return .pi
         }
     }
 
@@ -928,6 +1025,27 @@ private struct ContentBlock: Decodable {
 private struct SkillInput: Decodable {
     let skill: String?
     let args: String?
+}
+
+// MARK: - Pi Decode Structs
+
+private struct PiSessionLine: Decodable {
+    let type: String?
+    let timestamp: Date?
+    // Present on the leading "session" entry only.
+    let id: String?
+    let cwd: String?
+    let message: PiSessionMessage?
+}
+
+private struct PiSessionMessage: Decodable {
+    let role: String?
+    let content: [PiContentBlock]?
+}
+
+private struct PiContentBlock: Decodable {
+    let type: String?
+    let text: String?
 }
 
 // MARK: - Codex Decode Structs

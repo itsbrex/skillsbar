@@ -255,7 +255,9 @@ final class SkillStore: ObservableObject {
 
     func removeProjectSkillRoot(_ root: ProjectSkillRoot) {
         projectSkillRoots.removeAll { $0.id == root.id }
-        removeSkillReferences(inside: root.claudeSkillsPath)
+        for skillsPath in root.skillDirectoryPaths {
+            removeSkillReferences(inside: skillsPath)
+        }
         removeAgentReferences(inside: root.claudeAgentsPath)
         projectPinnedSkillPaths.removeValue(forKey: root.id.uuidString)
         persistProjectPins()
@@ -353,10 +355,12 @@ final class SkillStore: ObservableObject {
     }
 
     @discardableResult
-    func createProjectSkillsFolder(for root: ProjectSkillRoot) -> Bool {
+    /// Creates one of the project's skill directories. Defaults to .claude/skills; pass
+    /// `root.piSkillsPath` to onboard a project for Pi instead.
+    func createProjectSkillsFolder(for root: ProjectSkillRoot, at directory: String? = nil) -> Bool {
         do {
             try FileManager.default.createDirectory(
-                at: URL(fileURLWithPath: root.claudeSkillsPath),
+                at: URL(fileURLWithPath: directory ?? root.claudeSkillsPath),
                 withIntermediateDirectories: true
             )
             refresh()
@@ -402,24 +406,51 @@ final class SkillStore: ObservableObject {
             return .missingProjectFolder
         }
 
-        isDirectory = false
-        guard fileManager.fileExists(atPath: root.claudeSkillsPath, isDirectory: &isDirectory), isDirectory.boolValue else {
-            return .missingSkillsFolder
+        // Any one of the harness skill directories makes the project usable.
+        let hasSkillsFolder = root.skillDirectoryPaths.contains { candidate in
+            var isSkillsDirectory: ObjCBool = false
+            return fileManager.fileExists(atPath: candidate, isDirectory: &isSkillsDirectory) && isSkillsDirectory.boolValue
         }
+        guard hasSkillsFolder else { return .missingSkillsFolder }
 
         return .available
     }
 
     func projectSkillRoot(for section: SkillSection) -> ProjectSkillRoot? {
-        section.skills.compactMap { skill -> ProjectSkillRoot? in
-            guard case .claudeCode(.project(let root)) = skill.source else { return nil }
-            return root
-        }.first
+        section.skills.compactMap(projectSkillRoot(for:)).first
+    }
+
+    /// Which of a project's skill directories these skills came from. A project can carry
+    /// .claude/skills, .pi/skills, and .agents/skills at once, so the answer comes from the
+    /// skill paths rather than the source case. Falls back to .claude/skills.
+    func projectSkillsDirectory(for skills: [Skill], in root: ProjectSkillRoot) -> String {
+        let candidates = root.skillDirectoryPaths.map(standardizedPath)
+        for skill in skills {
+            let skillPath = standardizedPath(skill.path)
+            if let match = candidates.first(where: { path(skillPath, isEqualToOrInside: $0) }) {
+                return match
+            }
+        }
+        return root.claudeSkillsPath
+    }
+
+    /// Project-relative label for a skills directory, for example ".pi/skills".
+    func projectRelativeLabel(for directory: String, in root: ProjectSkillRoot) -> String {
+        let rootPath = standardizedPath(root.path)
+        let directoryPath = standardizedPath(directory)
+        guard directoryPath.hasPrefix(rootPath + "/") else {
+            return (directoryPath as NSString).lastPathComponent
+        }
+        return String(directoryPath.dropFirst(rootPath.count + 1))
     }
 
     func projectSkillRoot(for skill: Skill) -> ProjectSkillRoot? {
-        guard case .claudeCode(.project(let root)) = skill.source else { return nil }
-        return root
+        switch skill.source {
+        case .claudeCode(.project(let root)), .pi(.project(let root)):
+            return root
+        default:
+            return nil
+        }
     }
 
     func conflictSummary(for skill: Skill) -> SkillConflictSummary? {
@@ -434,7 +465,10 @@ final class SkillStore: ObservableObject {
         var conflictingPaths: [String] = []
         var seenPaths: Set<String> = []
 
-        for candidate in lastScannedSkills where candidate.path != skill.path {
+        // Only the harness that loads this project skill can shadow it.
+        let sameHarness = lastScannedSkills.filter { $0.source.harnessID == skill.source.harnessID }
+
+        for candidate in sameHarness where candidate.path != skill.path {
             let triggerMatches = normalizedSearchValue(candidate.triggerCommand) == trigger
             let nameMatches = normalizedSearchValue(candidate.displayName) == name
             guard triggerMatches || nameMatches else { continue }
@@ -981,15 +1015,8 @@ final class SkillStore: ObservableObject {
 
     func groupsForTab(_ tab: SkillTab) -> [SkillGroup] {
         let source = filteredGroups
-        var tabGroups: [SkillGroup]
-        switch tab {
-        case .claudeCode:
-            tabGroups = source.filter { $0.id == "claude-code" }
-        case .codex:
-            tabGroups = source.filter { $0.id == "codex-cli" }
-        case .collections:
-            return []
-        }
+        guard let groupID = tab.groupID else { return [] }
+        var tabGroups = source.filter { $0.id == groupID }
 
         // Build pinned section from skills in this tab, preserving custom order
         let allSkills = tabGroups.flatMap { $0.sections.flatMap { $0.skills } }
@@ -1121,6 +1148,9 @@ final class SkillStore: ObservableObject {
         case .codex:
             let skillCount = allGroups.filter { $0.id == "codex-cli" }.reduce(0) { $0 + $1.totalCount }
             return skillCount + plugins.count
+        case .pi:
+            // Pi has no sub-agents and no plugin-skill cache, so skills are the whole count.
+            return allGroups.filter { $0.id == "pi" }.reduce(0) { $0 + $1.totalCount }
         case .collections:
             return collections.count
         }
@@ -1281,20 +1311,22 @@ final class SkillStore: ObservableObject {
     }
 
     func conflictGroups() -> [SkillConflictGroup] {
+        // Group per harness: the same skill linked into two harnesses is available twice,
+        // not in conflict. Only one harness loading two same-named skills is a real clash.
         let triggerGroups = Dictionary(grouping: lastScannedSkills) { skill in
-            normalizedSearchValue(skill.triggerCommand)
+            "\(skill.source.harnessID)|\(normalizedSearchValue(skill.triggerCommand))"
         }
         let nameGroups = Dictionary(grouping: lastScannedSkills) { skill in
-            normalizedSearchValue(skill.displayName)
+            "\(skill.source.harnessID)|\(normalizedSearchValue(skill.displayName))"
         }
 
-        let triggers = triggerGroups.compactMap { key, skills -> SkillConflictGroup? in
-            guard !key.isEmpty, skills.count > 1 else { return nil }
+        let triggers = triggerGroups.compactMap { _, skills -> SkillConflictGroup? in
+            guard skills.count > 1, !normalizedSearchValue(skills[0].triggerCommand).isEmpty else { return nil }
             return SkillConflictGroup(kind: .trigger, value: skills[0].triggerCommand, skills: sortSkills(skills))
         }
 
-        let names = nameGroups.compactMap { key, skills -> SkillConflictGroup? in
-            guard !key.isEmpty, skills.count > 1 else { return nil }
+        let names = nameGroups.compactMap { _, skills -> SkillConflictGroup? in
+            guard skills.count > 1, !normalizedSearchValue(skills[0].displayName).isEmpty else { return nil }
             return SkillConflictGroup(kind: .name, value: skills[0].displayName, skills: sortSkills(skills))
         }
 
@@ -1336,7 +1368,7 @@ final class SkillStore: ObservableObject {
         let globalItems = GlobalInstructionsFile.allCases.map { file in
             instructionHubItem(
                 displayName: file.displayName,
-                sourceLabel: file == .claudeCode ? "Claude Code" : "Codex",
+                sourceLabel: file.sourceLabel,
                 scope: .global,
                 projectName: nil,
                 path: file.path
@@ -1366,10 +1398,14 @@ final class SkillStore: ObservableObject {
             ("Claude agents", (home as NSString).appendingPathComponent(".claude/agents")),
             ("Codex user skills", (home as NSString).appendingPathComponent(".codex/skills")),
             ("Codex plugins", (home as NSString).appendingPathComponent(".codex/plugins/cache")),
+            ("Pi user skills", (home as NSString).appendingPathComponent(".pi/agent/skills")),
+            ("Shared skills", (home as NSString).appendingPathComponent(".agents/skills")),
         ]
 
         for root in orderedProjectSkillRoots {
             folders.append(("\(root.name) project skills", root.claudeSkillsPath))
+            folders.append(("\(root.name) Pi project skills", root.piSkillsPath))
+            folders.append(("\(root.name) shared project skills", root.sharedSkillsPath))
             folders.append(("\(root.name) project agents", root.claudeAgentsPath))
         }
 
@@ -1377,12 +1413,7 @@ final class SkillStore: ObservableObject {
     }
 
     private func validationExampleInvocation(for skill: Skill) -> String {
-        switch skill.source {
-        case .claudeCode:
-            return "Claude Code: \(skill.triggerCommand)"
-        case .codexCLI:
-            return "Codex: \(skill.triggerCommand)"
-        }
+        "\(skill.source.groupTitle): \(skill.triggerCommand)"
     }
 
     private func instructionHubItem(
@@ -1414,9 +1445,20 @@ final class SkillStore: ObservableObject {
     enum SkillTab: String, CaseIterable, Identifiable {
         case claudeCode = "Claude Code"
         case codex = "Codex"
+        case pi = "Pi"
         case collections = "Collections"
 
         var id: String { rawValue }
+
+        /// Group id produced by `buildGroups` for this tab, or nil when the tab is not skill-backed.
+        var groupID: String? {
+            switch self {
+            case .claudeCode: return "claude-code"
+            case .codex: return "codex-cli"
+            case .pi: return "pi"
+            case .collections: return nil
+            }
+        }
     }
 
     // MARK: - Lifecycle
@@ -1553,8 +1595,20 @@ final class SkillStore: ObservableObject {
         runTerminalCommand("codex .", in: root.path)
     }
 
+    static func openProjectInPi(_ root: ProjectSkillRoot) {
+        runTerminalCommand("pi", in: root.path)
+    }
+
     static func openProjectSkillsFolder(_ root: ProjectSkillRoot, in editor: ExternalEditor) {
         open(URL(fileURLWithPath: root.claudeSkillsPath), in: editor)
+    }
+
+    static func openProjectPiSkillsFolder(_ root: ProjectSkillRoot, in editor: ExternalEditor) {
+        open(URL(fileURLWithPath: root.piSkillsPath), in: editor)
+    }
+
+    static func revealProjectPiSkillsFolderInFinder(_ root: ProjectSkillRoot) {
+        NSWorkspace.shared.selectFile(root.piSkillsPath, inFileViewerRootedAtPath: "")
     }
 
     static func openProjectAgentsFolder(_ root: ProjectSkillRoot, in editor: ExternalEditor) {
@@ -1599,6 +1653,7 @@ final class SkillStore: ObservableObject {
     enum GlobalInstructionsFile: String, CaseIterable, Identifiable {
         case claudeCode
         case codex
+        case pi
 
         var id: String { rawValue }
 
@@ -1606,6 +1661,15 @@ final class SkillStore: ObservableObject {
             switch self {
             case .claudeCode: return "Global CLAUDE.md"
             case .codex:      return "Global AGENTS.md"
+            case .pi:         return "Pi AGENTS.md"
+            }
+        }
+
+        var sourceLabel: String {
+            switch self {
+            case .claudeCode: return "Claude Code"
+            case .codex:      return "Codex"
+            case .pi:         return "Pi"
             }
         }
 
@@ -1613,6 +1677,8 @@ final class SkillStore: ObservableObject {
             switch self {
             case .claudeCode: return ("~/.claude/CLAUDE.md" as NSString).expandingTildeInPath
             case .codex:      return ("~/.codex/AGENTS.md"  as NSString).expandingTildeInPath
+            // Pi keeps global instructions inside its agent dir, not at ~/.pi.
+            case .pi:         return ("~/.pi/agent/AGENTS.md" as NSString).expandingTildeInPath
             }
         }
     }
@@ -1632,6 +1698,7 @@ final class SkillStore: ObservableObject {
         let home = fileManager.homeDirectoryForCurrentUser.path
         let claudeRoot = (home as NSString).appendingPathComponent(".claude")
         let codexRoot = (home as NSString).appendingPathComponent(".codex")
+        let piRoot = (home as NSString).appendingPathComponent(".pi")
 
         var targetPaths = [
             (home as NSString).appendingPathComponent(".claude/skills"),
@@ -1639,10 +1706,12 @@ final class SkillStore: ObservableObject {
             (home as NSString).appendingPathComponent(".claude/agents"),
             (home as NSString).appendingPathComponent(".codex/skills"),
             (home as NSString).appendingPathComponent(".codex/plugins/cache"),
+            (home as NSString).appendingPathComponent(".pi/agent/skills"),
+            (home as NSString).appendingPathComponent(".agents/skills"),
         ].map { standardizedPath($0) }
 
         for root in enabledProjectSkillRoots {
-            targetPaths.append(standardizedPath(root.claudeSkillsPath))
+            targetPaths.append(contentsOf: root.skillDirectoryPaths.map(standardizedPath))
             targetPaths.append(standardizedPath(root.claudeAgentsPath))
             targetPaths.append(contentsOf: root.instructionCandidatePaths.map(standardizedPath))
         }
@@ -1652,45 +1721,45 @@ final class SkillStore: ObservableObject {
 
         var watchPaths = targetPaths
 
-        let claudeTargets = targetPaths.filter { path($0, isEqualToOrInside: standardizedPath(claudeRoot)) }
-        if claudeTargets.contains(where: { !fileManager.fileExists(atPath: $0) }) {
-            if fileManager.fileExists(atPath: claudeRoot) {
-                watchPaths.append(standardizedPath(claudeRoot))
-            } else {
-                watchPaths.append(standardizedPath(home))
-                watchedCreationMarkers.insert(standardizedPath(claudeRoot))
-            }
-        }
+        // For each harness config root, fall back to watching the root (or home) so a
+        // skills directory created later still triggers a refresh.
+        let agentsRoot = (home as NSString).appendingPathComponent(".agents")
+        for harnessRoot in [claudeRoot, codexRoot, piRoot, agentsRoot] {
+            let standardizedRoot = standardizedPath(harnessRoot)
+            let harnessTargets = targetPaths.filter { path($0, isEqualToOrInside: standardizedRoot) }
+            guard harnessTargets.contains(where: { !fileManager.fileExists(atPath: $0) }) else { continue }
 
-        let codexTargets = targetPaths.filter { path($0, isEqualToOrInside: standardizedPath(codexRoot)) }
-        if codexTargets.contains(where: { !fileManager.fileExists(atPath: $0) }) {
-            if fileManager.fileExists(atPath: codexRoot) {
-                watchPaths.append(standardizedPath(codexRoot))
+            if fileManager.fileExists(atPath: harnessRoot) {
+                watchPaths.append(standardizedRoot)
             } else {
                 watchPaths.append(standardizedPath(home))
-                watchedCreationMarkers.insert(standardizedPath(codexRoot))
+                watchedCreationMarkers.insert(standardizedRoot)
             }
         }
 
         for root in enabledProjectSkillRoots {
             let projectPath = standardizedPath(root.path)
             let projectClaudeRoot = standardizedPath((projectPath as NSString).appendingPathComponent(".claude"))
-            let projectSkillsPath = standardizedPath(root.claudeSkillsPath)
             let projectAgentsPath = standardizedPath(root.claudeAgentsPath)
 
             if fileManager.fileExists(atPath: projectPath) {
                 watchPaths.append(projectPath)
             }
 
-            if fileManager.fileExists(atPath: projectSkillsPath) {
-                watchPaths.append(projectSkillsPath)
-            } else if fileManager.fileExists(atPath: projectClaudeRoot) {
-                watchPaths.append(projectClaudeRoot)
-                watchedCreationMarkers.insert(projectSkillsPath)
-            } else if fileManager.fileExists(atPath: projectPath) {
-                watchPaths.append(projectPath)
-                watchedCreationMarkers.insert(projectClaudeRoot)
-                watchedCreationMarkers.insert(projectSkillsPath)
+            // .claude/skills, .pi/skills, and .agents/skills each sit under their own config dir.
+            for skillsPath in root.skillDirectoryPaths.map(standardizedPath) {
+                let configRoot = standardizedPath((skillsPath as NSString).deletingLastPathComponent)
+
+                if fileManager.fileExists(atPath: skillsPath) {
+                    watchPaths.append(skillsPath)
+                } else if fileManager.fileExists(atPath: configRoot) {
+                    watchPaths.append(configRoot)
+                    watchedCreationMarkers.insert(skillsPath)
+                } else if fileManager.fileExists(atPath: projectPath) {
+                    watchPaths.append(projectPath)
+                    watchedCreationMarkers.insert(configRoot)
+                    watchedCreationMarkers.insert(skillsPath)
+                }
             }
 
             if fileManager.fileExists(atPath: projectAgentsPath) {
@@ -1861,6 +1930,9 @@ final class SkillStore: ObservableObject {
         var codexBuiltinSkills: [Skill] = []
         var codexPluginSkills: [Skill] = []
         var codexUserSkills: [Skill] = []
+        var piUserSkills: [Skill] = []
+        var piSharedSkills: [Skill] = []
+        var piProjectSkillsByRoot: [ProjectSkillRoot: [Skill]] = [:]
 
         for skill in skills {
             switch skill.source {
@@ -1870,6 +1942,9 @@ final class SkillStore: ObservableObject {
             case .codexCLI(.builtin): codexBuiltinSkills.append(skill)
             case .codexCLI(.plugin): codexPluginSkills.append(skill)
             case .codexCLI(.user): codexUserSkills.append(skill)
+            case .pi(.user): piUserSkills.append(skill)
+            case .pi(.shared): piSharedSkills.append(skill)
+            case .pi(.project(let root)): piProjectSkillsByRoot[root, default: []].append(skill)
             }
         }
 
@@ -1907,6 +1982,27 @@ final class SkillStore: ObservableObject {
 
         if !codexSections.isEmpty {
             groups.append(SkillGroup(id: "codex-cli", title: "Codex", sections: codexSections))
+        }
+
+        var piSections = [
+            piUserSkills.isEmpty ? nil : SkillSection(id: "pi-user", title: "User Skills", skills: sortSkills(piUserSkills)),
+        ].compactMap { $0 }
+
+        piSections.append(contentsOf: orderedProjectSkillRoots.compactMap { root -> SkillSection? in
+            guard let skills = piProjectSkillsByRoot[root], !skills.isEmpty else { return nil }
+            return SkillSection(
+                id: "pi-project-\(root.id.uuidString)",
+                title: "\(root.name) Project Skills",
+                skills: sortSkills(skills)
+            )
+        })
+
+        if !piSharedSkills.isEmpty {
+            piSections.append(SkillSection(id: "pi-shared", title: "Shared Skills", skills: sortSkills(piSharedSkills)))
+        }
+
+        if !piSections.isEmpty {
+            groups.append(SkillGroup(id: "pi", title: "Pi", sections: piSections))
         }
 
         return groups

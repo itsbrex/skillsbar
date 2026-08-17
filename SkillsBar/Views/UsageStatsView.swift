@@ -556,21 +556,22 @@ struct UsageStatsView: View {
         installedSkills.first { UsageTracker.identifier(for: $0) == stat.id }
     }
 
+    @ViewBuilder
     private func sourceIcon(_ source: UsageSource) -> some View {
-        Image(sourceAssetName(source))
-            .renderingMode(.template)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .foregroundStyle(sourceTint(source))
-            .frame(width: 18, height: 18)
-    }
-
-    private func sourceAssetName(_ source: UsageSource) -> String {
         switch source {
-        case .claudeCode:
-            return "ClaudeLogo"
-        case .codexCLI:
-            return "CodexLogo"
+        case .claudeCode, .codexCLI:
+            Image(source == .claudeCode ? "ClaudeLogo" : "CodexLogo")
+                .renderingMode(.template)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .foregroundStyle(sourceTint(source))
+                .frame(width: 18, height: 18)
+        case .pi:
+            // Pi ships no logo asset, so the built-in SF Symbol stands in.
+            Image(systemName: "pi")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(sourceTint(source))
+                .frame(width: 18, height: 18)
         }
     }
 
@@ -580,6 +581,8 @@ struct UsageStatsView: View {
             return .orange
         case .codexCLI:
             return .blue
+        case .pi:
+            return .pink
         }
     }
 

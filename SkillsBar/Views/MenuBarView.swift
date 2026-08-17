@@ -2,6 +2,7 @@ import SwiftUI
 
 private let claudeColor = Color(red: 0.85, green: 0.45, blue: 0.1)
 private let codexColor = Color.purple
+private let piColor = Color.pink
 private let collectionsColor = Color.blue
 private let cardBackground = Color.primary.opacity(0.10)
 private let cardRadius: CGFloat = 12
@@ -576,17 +577,27 @@ struct MenuBarView: View {
             HStack(spacing: 6) {
                 searchFilterChip(label: "Project", token: "source:project")
 
-                if selectedTab == .claudeCode || selectedTab == .collections {
+                // Claude Code and Pi both read project-local skills; Codex does not.
+                if selectedTab == .claudeCode || selectedTab == .pi || selectedTab == .collections {
                     ForEach(store.orderedProjectSkillRoots.filter(\.isEnabled)) { root in
                         searchFilterChip(label: root.name, token: projectSearchToken(for: root))
                     }
                 }
 
                 searchFilterChip(label: "User", token: "source:user")
-                searchFilterChip(label: "Plugin", token: "source:plugin")
+
+                // Pi has no plugin-provided skills.
+                if selectedTab != .pi {
+                    searchFilterChip(label: "Plugin", token: "source:plugin")
+                }
 
                 if selectedTab == .codex || selectedTab == .collections {
                     searchFilterChip(label: "Built-in", token: "source:builtin")
+                }
+
+                // ~/.agents/skills is read by Pi only.
+                if selectedTab == .pi || selectedTab == .collections {
+                    searchFilterChip(label: "Shared", token: "source:shared")
                 }
             }
             .padding(.horizontal, 12)
@@ -727,6 +738,39 @@ struct MenuBarView: View {
                                 ForEach(agentGroups.filter { $0.id != "pinned" }) { group in
                                     ForEach(group.sections.filter { $0.id == "agent-plugin" }) { section in
                                         agentSectionCard(group: group, section: section)
+                                    }
+                                }
+                            } else if selectedTab == .pi {
+                                // Pinned skills first
+                                ForEach(tabGroups.filter { $0.id == "pinned" }) { group in
+                                    ForEach(group.sections) { section in
+                                        skillSectionCard(group: group, section: section)
+                                    }
+                                }
+
+                                // User Skills
+                                ForEach(tabGroups.filter { $0.id != "pinned" }) { group in
+                                    ForEach(group.sections.filter { $0.id == "pi-user" }) { section in
+                                        skillSectionCard(group: group, section: section)
+                                    }
+                                }
+
+                                // Project Skills
+                                ForEach(tabGroups.filter { $0.id != "pinned" }) { group in
+                                    ForEach(group.sections.filter { $0.id.hasPrefix("pi-project-") }) { section in
+                                        skillSectionCard(group: group, section: section)
+                                    }
+                                }
+
+                                if !recentItems.isEmpty,
+                                   let recentSectionID = whatsNewSectionID(for: selectedTab) {
+                                    whatsNewSectionCard(recentItems, sectionID: recentSectionID)
+                                }
+
+                                // Shared Skills (~/.agents/skills)
+                                ForEach(tabGroups.filter { $0.id != "pinned" }) { group in
+                                    ForEach(group.sections.filter { $0.id == "pi-shared" }) { section in
+                                        skillSectionCard(group: group, section: section)
                                     }
                                 }
                             } else {
@@ -895,6 +939,10 @@ struct MenuBarView: View {
 
     private func projectSectionMenu(root: ProjectSkillRoot, skills: [Skill]) -> some View {
         let status = store.projectSkillRootStatus(for: root)
+        // A project can hold .claude/skills, .pi/skills, and .agents/skills, so act on the
+        // directory this section's skills actually came from.
+        let skillsDirectory = store.projectSkillsDirectory(for: skills, in: root)
+        let skillsLabel = store.projectRelativeLabel(for: skillsDirectory, in: root)
 
         return Menu {
             Button("Copy All Triggers") {
@@ -910,15 +958,15 @@ struct MenuBarView: View {
             Button(preferredEditor.openMenuTitle) {
                 SkillStore.openProject(root, in: preferredEditor)
             }
-            Button("Open .claude/skills") {
-                SkillStore.openProjectSkillsFolder(root, in: preferredEditor)
+            Button("Open \(skillsLabel)") {
+                _ = SkillStore.open(URL(fileURLWithPath: skillsDirectory), in: preferredEditor)
             }
             .disabled(status == .missingProjectFolder || status == .missingSkillsFolder)
             Button("Reveal Project") {
                 SkillStore.revealProjectInFinder(root)
             }
-            Button("Reveal .claude/skills") {
-                SkillStore.revealProjectSkillsFolderInFinder(root)
+            Button("Reveal \(skillsLabel)") {
+                NSWorkspace.shared.selectFile(skillsDirectory, inFileViewerRootedAtPath: "")
             }
             .disabled(status == .missingProjectFolder || status == .missingSkillsFolder)
             Divider()
@@ -1167,7 +1215,7 @@ struct MenuBarView: View {
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("Mix Claude Code and Codex skills into one saved list.")
+                        Text("Mix Claude Code, Codex, and Pi skills into one saved list.")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                     }
@@ -1179,7 +1227,7 @@ struct MenuBarView: View {
                     }
                 }
             } else {
-                Text("Build custom sets like Docs, Release, or Debugging across Claude Code and Codex.")
+                Text("Build custom sets like Docs, Release, or Debugging across Claude Code, Codex, and Pi.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -1438,7 +1486,7 @@ struct MenuBarView: View {
             Text("No collections yet")
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
-            Text("Create a collection to group Claude Code and Codex skills together.")
+            Text("Create a collection to group Claude Code, Codex, and Pi skills together.")
                 .font(.system(size: 12))
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
@@ -1674,6 +1722,7 @@ struct MenuBarView: View {
         switch tab {
         case .claudeCode: return claudeColor
         case .codex: return codexColor
+        case .pi: return piColor
         case .collections: return collectionsColor
         }
     }
@@ -1684,18 +1733,24 @@ struct MenuBarView: View {
         let color = tabColor(for: tab)
 
         return Button { selectedTab = tab } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: 4) {
+                // Four tabs share 520pt, so labels shrink to fit rather than wrap.
                 Text(tab.rawValue)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .allowsTightening(true)
                 Text("\(count)")
                     .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                    .fixedSize()
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
                     .background(isSelected ? color.opacity(0.2) : Color.secondary.opacity(0.1))
                     .clipShape(Capsule())
             }
             .padding(.vertical, 8)
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 8)
             .frame(maxWidth: .infinity)
             .background(isSelected ? color.opacity(0.12) : Color.clear)
             .foregroundStyle(isSelected ? color : .secondary)
@@ -1751,8 +1806,10 @@ struct MenuBarView: View {
             return "Create a skill folder with a SKILL.md file in:"
         case .codex:
             return "Install a plugin or create a folder with SKILL.md in:"
+        case .pi:
+            return "Create a skill folder with a SKILL.md file in:"
         case .collections:
-            return "Create a collection to group skills across Claude Code and Codex."
+            return "Create a collection to group skills across Claude Code, Codex, and Pi."
         }
     }
 
@@ -1762,6 +1819,8 @@ struct MenuBarView: View {
             return "No Claude Code skills found"
         case .codex:
             return "No Codex items found"
+        case .pi:
+            return "No Pi skills found"
         case .collections:
             return "No collections found"
         }
@@ -1771,7 +1830,7 @@ struct MenuBarView: View {
         switch selectedTab {
         case .codex:
             return "No matching skills or plugins"
-        case .claudeCode:
+        case .claudeCode, .pi:
             return "No matching skills"
         case .collections:
             return "No matching collections"
@@ -1784,6 +1843,8 @@ struct MenuBarView: View {
             return "~/.claude/skills/"
         case .codex:
             return "~/.codex/skills/\n~/.codex/plugins/cache/"
+        case .pi:
+            return "~/.pi/agent/skills/\n~/.agents/skills/"
         case .collections:
             return "Use the New Collection button above."
         }
@@ -1797,6 +1858,8 @@ struct MenuBarView: View {
             return "Search skills, agents, source:project..."
         case .codex:
             return "Search skills, plugins, source:plugin..."
+        case .pi:
+            return "Search skills, source:shared..."
         }
     }
 
@@ -1858,6 +1921,8 @@ struct MenuBarView: View {
             return "claude-whats-new"
         case .codex:
             return "codex-whats-new"
+        case .pi:
+            return "pi-whats-new"
         case .collections:
             return nil
         }
@@ -2049,6 +2114,23 @@ struct MenuBarView: View {
             }
             addSkills(from: tabGroups, groupFilter: { $0.id != "pinned" }, sectionFilter: { $0.id == "claude-plugin" })
             addAgents(from: agentGroups, groupFilter: { $0.id != "pinned" }, sectionFilter: { $0.id == "agent-plugin" })
+        } else if selectedTab == .pi {
+            // Must mirror the Pi branch of the rendered list so arrow keys track what is shown.
+            addSkills(from: tabGroups, groupFilter: { $0.id == "pinned" })
+            addSkills(from: tabGroups, groupFilter: { $0.id != "pinned" }, sectionFilter: { $0.id == "pi-user" })
+            addSkills(from: tabGroups, groupFilter: { $0.id != "pinned" }, sectionFilter: { $0.id.hasPrefix("pi-project-") })
+            if let recentSectionID = whatsNewSectionID(for: selectedTab),
+               !isSectionCollapsed(recentSectionID) {
+                for item in recentItems {
+                    switch item {
+                    case .skill(let skill):
+                        items.append(.skill(skill))
+                    case .plugin(let plugin):
+                        items.append(.plugin(plugin))
+                    }
+                }
+            }
+            addSkills(from: tabGroups, groupFilter: { $0.id != "pinned" }, sectionFilter: { $0.id == "pi-shared" })
         } else {
             addSkills(from: tabGroups, groupFilter: { $0.id == "pinned" })
             if let recentSectionID = whatsNewSectionID(for: selectedTab),

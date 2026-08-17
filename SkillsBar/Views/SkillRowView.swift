@@ -1,5 +1,25 @@
 import SwiftUI
 
+/// Renders a skill source's mark. Claude Code and Codex ship image assets; Pi uses the
+/// built-in `pi` SF Symbol, so the two cases need different Image initializers.
+struct SkillSourceIcon: View {
+    let source: SkillSource
+    var size: CGFloat = 18
+
+    var body: some View {
+        if source.isCustomIcon {
+            Image(source.iconName)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+        } else {
+            Image(systemName: source.iconName)
+                .font(.system(size: size * 0.78, weight: .semibold))
+                .frame(width: size, height: size)
+        }
+    }
+}
+
 struct SkillRowView: View {
     let skill: Skill
     let isPinned: Bool
@@ -12,15 +32,22 @@ struct SkillRowView: View {
         switch skill.source {
         case .claudeCode: return Color(red: 0.85, green: 0.45, blue: 0.1)
         case .codexCLI: return .purple
+        case .pi: return .pink
+        }
+    }
+
+    /// Short mark shown when rows from different harnesses share one list.
+    private var sourceBadgeText: String {
+        switch skill.source {
+        case .claudeCode: return "Claude"
+        case .codexCLI: return "Codex"
+        case .pi: return "Pi"
         }
     }
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(skill.source.iconName)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 18, height: 18)
+            SkillSourceIcon(source: skill.source)
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -29,7 +56,7 @@ struct SkillRowView: View {
                         .font(.system(size: 14, weight: .medium))
                         .lineLimit(1)
                     if showSourceBadge {
-                        Text(skill.source.groupTitle == "Claude Code" ? "Claude" : "Codex")
+                        Text(sourceBadgeText)
                             .font(.system(size: 9, weight: .bold))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)

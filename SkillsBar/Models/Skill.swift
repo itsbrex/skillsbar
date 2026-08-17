@@ -91,6 +91,11 @@ struct Skill: Identifiable, Hashable {
         case .codexCLI(.user):
             let folderName = URL(fileURLWithPath: path).deletingLastPathComponent().lastPathComponent
             return folderName
+
+        case .pi:
+            // Pi registers /skill:<frontmatter name> and deliberately allows that name to
+            // differ from the folder, so the folder name is not a safe substitute here.
+            return "/skill:\(displayName)"
         }
     }
 
@@ -108,6 +113,12 @@ struct Skill: Identifiable, Hashable {
             return "Available through an installed Codex plugin"
         case .codexCLI(.user):
             return "Available as an installed skill in Codex"
+        case .pi(.user):
+            return "Type /skill:\(displayName) in Pi, or let Pi load it on its own"
+        case .pi(.shared):
+            return "Shared from ~/.agents/skills, available in Pi as /skill:\(displayName)"
+        case .pi(.project(let root)):
+            return "Available in Pi when working in \(root.name), once the project is trusted."
         }
     }
 }

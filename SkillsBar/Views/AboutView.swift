@@ -3,7 +3,7 @@ import SwiftUI
 struct AboutView: View {
     @ObservedObject var skillStore: SkillStore
     let onBack: () -> Void
-    private let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.10.0"
+    private let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.11.0"
     private let heroCornerRadius: CGFloat = 22
     private let sectionCornerRadius: CGFloat = 16
     private let fileManager = FileManager.default
@@ -110,7 +110,7 @@ struct AboutView: View {
                         .clipShape(Capsule())
                 }
 
-                Text("Browse Claude Code and Codex skills, plugins, agents, and collections right from your menu bar.")
+                Text("Browse Claude Code, Codex, and Pi skills, plugins, agents, and collections right from your menu bar.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -152,16 +152,21 @@ struct AboutView: View {
             ("~/.codex/skills/", homeURL.appendingPathComponent(".codex/skills", isDirectory: true)),
             ("~/.codex/plugins/cache/", homeURL.appendingPathComponent(".codex/plugins/cache", isDirectory: true)),
             ("~/.codex/history.jsonl", homeURL.appendingPathComponent(".codex/history.jsonl")),
-            ("~/.codex/sessions/", homeURL.appendingPathComponent(".codex/sessions", isDirectory: true))
+            ("~/.codex/sessions/", homeURL.appendingPathComponent(".codex/sessions", isDirectory: true)),
+            ("~/.pi/agent/skills/", homeURL.appendingPathComponent(".pi/agent/skills", isDirectory: true)),
+            ("~/.pi/agent/sessions/", homeURL.appendingPathComponent(".pi/agent/sessions", isDirectory: true)),
+            ("~/.agents/skills/", homeURL.appendingPathComponent(".agents/skills", isDirectory: true))
         ]
 
         for root in skillStore.enabledProjectSkillRoots {
-            paths.append(
-                (
-                    "\(displayProjectRelativePath(root.claudeSkillsPath))",
-                    URL(fileURLWithPath: root.claudeSkillsPath, isDirectory: true)
+            for skillsPath in root.skillDirectoryPaths {
+                paths.append(
+                    (
+                        displayProjectRelativePath(skillsPath),
+                        URL(fileURLWithPath: skillsPath, isDirectory: true)
+                    )
                 )
-            )
+            }
             paths.append(
                 (
                     "\(displayProjectRelativePath(root.claudeAgentsPath))",

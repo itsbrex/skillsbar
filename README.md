@@ -5,7 +5,7 @@
 <h1 align="center">SkillsBar</h1>
 
 <p align="center">
-  A macOS menu bar app for browsing and managing your <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a> and <a href="https://openai.com/codex/">Codex</a> skills, project skills, plugins, collections, and agents.
+  A macOS menu bar app for browsing and managing your <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a>, <a href="https://openai.com/codex/">Codex</a>, and <a href="https://github.com/earendil-works/pi">pi</a> skills, project skills, plugins, collections, and agents.
 </p>
 
 <p align="center">
@@ -42,22 +42,22 @@
 
 ## Features
 
-- **Tabbed browsing** - separate tabs for Claude Code, Codex, and Collections with count badges
+- **Tabbed browsing** - separate tabs for Claude Code, Codex, pi, and Collections with count badges
 - **Search** - filter skills, plugins, agents, and collections by name, description, metadata, collection trigger commands, and source tokens such as `source:project`
 - **Command Palette** - press `Cmd + K` inside the popover to search skills, agents, plugins, collections, projects, tool screens, and actions from one place, with inline copy-trigger and open-in-editor buttons
 - **Pin favorites** - pin frequently used skills to the top of each tab (persisted across restarts)
 - **Settings** - choose whether to show What's New, switch between system, light, and dark appearance, and control the default sort from one place
 - **Project workspace view** - manage trusted project folders in a dedicated screen with project skills, project agents, instruction files, health, conflicts, recents, pinning, rename, and reorder controls
-- **Project instructions** - detect project-local `CLAUDE.md`, `AGENTS.md`, and `.codex/AGENTS.md` files next to the trusted project
+- **Project instructions** - detect project-local `CLAUDE.md`, `AGENTS.md`, `.codex/AGENTS.md`, and pi's `AGENTS.override.md` files next to the trusted project
 - **Instructions Hub** - one screen for global and project instruction files with Ready, Missing, Empty, and Unreadable states, plus open-or-create actions in your preferred editor
 - **Project actions** - create collections from a project, open the project in Claude Code or Codex, and create `.claude/skills` with explicit consent when onboarding an empty project
 - **Preferred editor** - choose an installed editor such as VS Code, WebStorm, Cursor, Zed, or Xcode for opening skills, agents, plugins, and global instructions
 - **Start at Login** - open SkillsBar automatically when you sign in, with a shortcut to Login Items settings if approval is needed
 - **Sort options** - sort skills by A-Z, Recently Modified, or Most Used, with the selected order persisted across restarts
-- **Collections** - create custom cross-source groups that can mix Claude Code and Codex skills in one saved view
+- **Collections** - create custom cross-source groups that can mix Claude Code, Codex, and pi skills in one saved view
 - **Codex plugin browsing** - browse installed Codex plugins with version, publisher, capabilities, included skills, and quick open/reveal actions
 - **What's New** - spotlight skills and installed plugins changed in the last 7 days in a dedicated section
-- **Usage stats** - tracks Claude Code, Codex CLI, and Codex Desktop skill invocations in app-owned history, with 30d, 7d, and All ranges, daily/monthly heatmaps, quick hover totals by source, and ranked per-skill usage that still counts deleted skills
+- **Usage stats** - tracks Claude Code, Codex CLI, Codex Desktop, and pi skill invocations in app-owned history, with 30d, 7d, and All ranges, daily/monthly heatmaps, quick hover totals by source, and ranked per-skill usage that still counts deleted skills
 - **Skill Health** - a checkup screen in the footer Tools menu that flags invalid frontmatter, missing descriptions, duplicate triggers, missing collection paths, unreadable folders, and stale pins, with one-click cleanup actions
 - **"New" indicator** - skills modified in the last 24 hours are marked with a blue badge
 - **Detail views** - inspect rich metadata for skills, agents, and Codex plugins, including trigger commands, included skills, and file listings
@@ -87,6 +87,13 @@
 | `~/.codex/plugins/cache/`  | Codex plugins and plugin-provided skills   |
 | `~/.codex/history.jsonl`   | Codex CLI skill invocation history         |
 | `~/.codex/sessions/`       | Codex Desktop session rollouts             |
+| `~/.pi/agent/skills/`      | pi user skills                             |
+| `~/.agents/skills/`        | Harness-neutral shared skills (read by pi) |
+| `~/.pi/agent/sessions/`    | pi skill invocation history                |
+| `~/.pi/agent/AGENTS.md`    | pi global instructions                     |
+| `<project>/.pi/skills/`    | Approved project-level pi skills           |
+| `<project>/.agents/skills/` | Approved project-level shared skills      |
+| `<project>/AGENTS.override.md` | Approved project pi instructions       |
 
 ## Install
 

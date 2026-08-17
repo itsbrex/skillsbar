@@ -67,6 +67,21 @@ struct ProjectSkillRoot: Identifiable, Codable, Hashable {
         (path as NSString).appendingPathComponent(".claude/agents")
     }
 
+    /// Pi's project-local skills directory.
+    var piSkillsPath: String {
+        (path as NSString).appendingPathComponent(".pi/skills")
+    }
+
+    /// Harness-neutral project skills directory from the Agent Skills standard. Pi reads it; Claude Code does not.
+    var sharedSkillsPath: String {
+        (path as NSString).appendingPathComponent(".agents/skills")
+    }
+
+    /// Every project directory that can hold skills, in the order sections are shown.
+    var skillDirectoryPaths: [String] {
+        [claudeSkillsPath, piSkillsPath, sharedSkillsPath]
+    }
+
     var instructionCandidatePaths: [String] {
         ProjectInstructionKind.allCases.map { kind in
             (path as NSString).appendingPathComponent(kind.relativePath)
@@ -87,7 +102,8 @@ enum ProjectSkillRootStatus: Equatable {
         case .available:
             return "Ready"
         case .missingSkillsFolder:
-            return "No .claude/skills"
+            // Neutral wording: a project can carry .claude/skills, .pi/skills, or .agents/skills.
+            return "No skills folder"
         case .missingProjectFolder:
             return "Missing"
         }
@@ -107,6 +123,7 @@ enum ProjectInstructionKind: String, CaseIterable, Hashable {
     case claudeRoot
     case codexRoot
     case codexScoped
+    case piOverride
 
     var relativePath: String {
         switch self {
@@ -116,26 +133,27 @@ enum ProjectInstructionKind: String, CaseIterable, Hashable {
             return "AGENTS.md"
         case .codexScoped:
             return ".codex/AGENTS.md"
+        case .piOverride:
+            return "AGENTS.override.md"
         }
     }
 
     var displayName: String {
-        switch self {
-        case .claudeRoot:
-            return "CLAUDE.md"
-        case .codexRoot:
-            return "AGENTS.md"
-        case .codexScoped:
-            return ".codex/AGENTS.md"
-        }
+        relativePath
     }
 
+    /// Which harnesses read this file. Pi reads CLAUDE.md and AGENTS.md too, and
+    /// prefers AGENTS.override.md over both when it is present in a directory.
     var sourceLabel: String {
         switch self {
         case .claudeRoot:
-            return "Claude Code"
-        case .codexRoot, .codexScoped:
+            return "Claude Code, Pi"
+        case .codexRoot:
+            return "Codex, Pi"
+        case .codexScoped:
             return "Codex"
+        case .piOverride:
+            return "Pi"
         }
     }
 }
@@ -186,6 +204,8 @@ enum SkillSourceCategory: String, CaseIterable, Hashable {
     case plugin
     case project
     case builtin
+    /// Harness-neutral ~/.agents/skills location. Searchable as `source:shared`.
+    case shared
 }
 
 struct SkillConflictSummary: Hashable {
@@ -225,6 +245,7 @@ struct SkillConflictSummary: Hashable {
 enum SkillSource: Hashable {
     case claudeCode(ClaudeCodeSection)
     case codexCLI(CodexSection)
+    case pi(PiSection)
 
     enum ClaudeCodeSection: Hashable {
         case user
@@ -249,10 +270,33 @@ enum SkillSource: Hashable {
         case user = "User Skills"
     }
 
+    /// Pi has no sub-agents and no plugin-skill cache. It reads two global skill
+    /// directories and two project-local ones. See pi docs/skills.md.
+    enum PiSection: Hashable {
+        /// ~/.pi/agent/skills
+        case user
+        /// ~/.agents/skills
+        case shared
+        /// <project>/.pi/skills and <project>/.agents/skills
+        case project(ProjectSkillRoot)
+
+        var title: String {
+            switch self {
+            case .user:
+                return "User Skills"
+            case .shared:
+                return "Shared Skills"
+            case .project:
+                return "Project Skill"
+            }
+        }
+    }
+
     var groupTitle: String {
         switch self {
         case .claudeCode: return "Claude Code"
         case .codexCLI: return "Codex"
+        case .pi: return "Pi"
         }
     }
 
@@ -260,23 +304,24 @@ enum SkillSource: Hashable {
         switch self {
         case .claudeCode(let section): return section.title
         case .codexCLI(let section): return section.rawValue
+        case .pi(let section): return section.title
         }
     }
 
     var projectName: String? {
         switch self {
-        case .claudeCode(.project(let root)):
+        case .claudeCode(.project(let root)), .pi(.project(let root)):
             return root.name
-        case .claudeCode, .codexCLI:
+        case .claudeCode, .codexCLI, .pi:
             return nil
         }
     }
 
     var projectRootPath: String? {
         switch self {
-        case .claudeCode(.project(let root)):
+        case .claudeCode(.project(let root)), .pi(.project(let root)):
             return root.path
-        case .claudeCode, .codexCLI:
+        case .claudeCode, .codexCLI, .pi:
             return nil
         }
     }
@@ -285,16 +330,29 @@ enum SkillSource: Hashable {
         projectRootPath != nil
     }
 
+    /// The harness namespace this skill is loaded into. Two skills can only shadow each
+    /// other when one harness loads both, so conflict checks group on this. The same skill
+    /// symlinked into Claude Code and Pi is available twice, not in conflict.
+    var harnessID: String {
+        switch self {
+        case .claudeCode: return "claude-code"
+        case .codexCLI: return "codex"
+        case .pi: return "pi"
+        }
+    }
+
     var searchCategory: SkillSourceCategory {
         switch self {
-        case .claudeCode(.user), .codexCLI(.user):
+        case .claudeCode(.user), .codexCLI(.user), .pi(.user):
             return .user
         case .claudeCode(.plugin), .codexCLI(.plugin):
             return .plugin
-        case .claudeCode(.project):
+        case .claudeCode(.project), .pi(.project):
             return .project
         case .codexCLI(.builtin):
             return .builtin
+        case .pi(.shared):
+            return .shared
         }
     }
 
@@ -312,17 +370,30 @@ enum SkillSource: Hashable {
             return "Codex plugin"
         case .codexCLI(.user):
             return "Codex user"
+        case .pi(.user):
+            return "Pi user"
+        case .pi(.shared):
+            return "Shared"
+        case .pi(.project(let root)):
+            return "\(root.name) project"
         }
     }
 
+    /// An image-set name when `isCustomIcon` is true, otherwise an SF Symbol name.
     var iconName: String {
         switch self {
         case .claudeCode: return "ClaudeLogo"
         case .codexCLI: return "CodexLogo"
+        case .pi: return "pi"
         }
     }
 
-    var isCustomIcon: Bool { true }
+    var isCustomIcon: Bool {
+        switch self {
+        case .claudeCode, .codexCLI: return true
+        case .pi: return false
+        }
+    }
 
     var badgeColor: String {
         switch self {
@@ -332,6 +403,9 @@ enum SkillSource: Hashable {
         case .codexCLI(.builtin): return "purple"
         case .codexCLI(.plugin): return "purple"
         case .codexCLI(.user): return "purple"
+        case .pi(.user): return "pink"
+        case .pi(.shared): return "pink"
+        case .pi(.project(_)): return "blue"
         }
     }
 }

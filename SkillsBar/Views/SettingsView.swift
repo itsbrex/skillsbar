@@ -150,7 +150,7 @@ struct SettingsView: View {
                             .pickerStyle(.segmented)
                             .labelsHidden()
 
-                            Text("Applies to the main skill lists across Claude Code and Codex.")
+                            Text("Applies to the main skill lists across Claude Code, Codex, and Pi.")
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
                         }
