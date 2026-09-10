@@ -2,7 +2,11 @@ import Foundation
 
 struct AgentScanner {
     private let fileManager = FileManager.default
-    private let home = FileManager.default.homeDirectoryForCurrentUser.path
+    private let home: String
+
+    init(home: String = FileManager.default.homeDirectoryForCurrentUser.path) {
+        self.home = home
+    }
 
     func scanAll(projectSkillRoots: [ProjectSkillRoot] = []) -> [Agent] {
         var agents: [Agent] = []
@@ -25,27 +29,26 @@ struct AgentScanner {
         scanDirectAgentFiles(in: root.claudeAgentsPath, source: .project(root))
     }
 
-    /// Recursively scans ~/.claude/plugins/cache/ for files matching */agents/*.md
+    /// Scans installed Claude plugin versions for files matching */agents/*.md.
     func scanPluginAgents() -> [Agent] {
-        let dir = (home as NSString).appendingPathComponent(".claude/plugins/cache")
-        guard fileManager.fileExists(atPath: dir) else { return [] }
-        guard let enumerator = fileManager.enumerator(atPath: dir) else { return [] }
-
         var agents: [Agent] = []
-        while let relativePath = enumerator.nextObject() as? String {
-            let filename = (relativePath as NSString).lastPathComponent
-            guard filename.hasSuffix(".md") && !filename.hasPrefix(".") else { continue }
+        for dir in ClaudePluginRegistry(home: home).installedPluginPaths() {
+            guard let enumerator = fileManager.enumerator(atPath: dir) else { continue }
+            while let relativePath = enumerator.nextObject() as? String {
+                let filename = (relativePath as NSString).lastPathComponent
+                guard filename.hasSuffix(".md") && !filename.hasPrefix(".") else { continue }
 
-            // Check that this file is inside an "agents" directory
-            let parentDir = (relativePath as NSString).deletingLastPathComponent
-            guard (parentDir as NSString).lastPathComponent == "agents" else { continue }
+                // Check that this file is inside an "agents" directory
+                let parentDir = (relativePath as NSString).deletingLastPathComponent
+                guard (parentDir as NSString).lastPathComponent == "agents" else { continue }
 
-            let fullPath = (dir as NSString).appendingPathComponent(relativePath)
-            var isDir: ObjCBool = false
-            guard fileManager.fileExists(atPath: fullPath, isDirectory: &isDir), !isDir.boolValue else { continue }
+                let fullPath = (dir as NSString).appendingPathComponent(relativePath)
+                var isDir: ObjCBool = false
+                guard fileManager.fileExists(atPath: fullPath, isDirectory: &isDir), !isDir.boolValue else { continue }
 
-            if let agent = parseAgentMD(at: fullPath, source: .plugin) {
-                agents.append(agent)
+                if let agent = parseAgentMD(at: fullPath, source: .plugin) {
+                    agents.append(agent)
+                }
             }
         }
         return agents

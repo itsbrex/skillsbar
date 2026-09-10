@@ -44,6 +44,7 @@
 		A10001035 /* ProjectSkillsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002036; };
 		A10001036 /* SkillLibraryFeatureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002037; };
 		A10001037 /* SkillLibraryFeatureViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002038; };
+		A10001038 /* ClaudePluginRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002039; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -86,6 +87,7 @@
 		A10002036 /* ProjectSkillsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectSkillsView.swift; sourceTree = "<group>"; };
 		A10002037 /* SkillLibraryFeatureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillLibraryFeatureModels.swift; sourceTree = "<group>"; };
 		A10002038 /* SkillLibraryFeatureViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillLibraryFeatureViews.swift; sourceTree = "<group>"; };
+		A10002039 /* ClaudePluginRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudePluginRegistry.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -152,6 +154,7 @@
 				A10002024 /* UsageTracker.swift */,
 				A10002030 /* PluginScanner.swift */,
 				A10002035 /* LoginItemController.swift */,
+				A10002039 /* ClaudePluginRegistry.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -289,6 +292,7 @@
 				A10001035 /* ProjectSkillsView.swift in Sources */,
 				A10001036 /* SkillLibraryFeatureModels.swift in Sources */,
 				A10001037 /* SkillLibraryFeatureViews.swift in Sources */,
+				A10001038 /* ClaudePluginRegistry.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -430,7 +434,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.11.0;
+				MARKETING_VERSION = 1.11.1;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.amanhimself.skillsbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -457,7 +461,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.11.0;
+				MARKETING_VERSION = 1.11.1;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.amanhimself.skillsbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

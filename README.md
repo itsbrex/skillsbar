@@ -76,7 +76,7 @@
 | Path                       | Source                                     |
 | -------------------------- | ------------------------------------------ |
 | `~/.claude/skills/`        | Claude Code user skills                    |
-| `~/.claude/plugins/cache/` | Claude Code plugin skills                  |
+| `~/.claude/plugins/`       | Claude Code plugin registry, skills, and agents |
 | `~/.claude/agents/`        | Claude Code user agents                    |
 | `<project>/.claude/skills/` | Approved project-level Claude Code skills  |
 | `<project>/.claude/agents/` | Approved project-level Claude Code agents  |

@@ -1702,7 +1702,7 @@ final class SkillStore: ObservableObject {
 
         var targetPaths = [
             (home as NSString).appendingPathComponent(".claude/skills"),
-            (home as NSString).appendingPathComponent(".claude/plugins/cache"),
+            (home as NSString).appendingPathComponent(".claude/plugins"),
             (home as NSString).appendingPathComponent(".claude/agents"),
             (home as NSString).appendingPathComponent(".codex/skills"),
             (home as NSString).appendingPathComponent(".codex/plugins/cache"),

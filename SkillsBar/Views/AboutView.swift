@@ -3,7 +3,7 @@ import SwiftUI
 struct AboutView: View {
     @ObservedObject var skillStore: SkillStore
     let onBack: () -> Void
-    private let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.11.0"
+    private let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.11.1"
     private let heroCornerRadius: CGFloat = 22
     private let sectionCornerRadius: CGFloat = 16
     private let fileManager = FileManager.default
@@ -146,7 +146,7 @@ struct AboutView: View {
         let homeURL = fileManager.homeDirectoryForCurrentUser
         var paths = [
             ("~/.claude/skills/", homeURL.appendingPathComponent(".claude/skills", isDirectory: true)),
-            ("~/.claude/plugins/cache/", homeURL.appendingPathComponent(".claude/plugins/cache", isDirectory: true)),
+            ("~/.claude/plugins/", homeURL.appendingPathComponent(".claude/plugins", isDirectory: true)),
             ("~/.claude/agents/", homeURL.appendingPathComponent(".claude/agents", isDirectory: true)),
             ("~/.claude/projects/", homeURL.appendingPathComponent(".claude/projects", isDirectory: true)),
             ("~/.codex/skills/", homeURL.appendingPathComponent(".codex/skills", isDirectory: true)),

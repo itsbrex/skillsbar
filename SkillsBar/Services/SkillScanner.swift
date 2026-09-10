@@ -2,7 +2,11 @@ import Foundation
 
 struct SkillScanner {
     private let fileManager = FileManager.default
-    private let home = FileManager.default.homeDirectoryForCurrentUser.path
+    private let home: String
+
+    init(home: String = FileManager.default.homeDirectoryForCurrentUser.path) {
+        self.home = home
+    }
 
     func scanAll(projectSkillRoots: [ProjectSkillRoot] = []) -> [Skill] {
         var skills: [Skill] = []
@@ -35,32 +39,20 @@ struct SkillScanner {
         scanDirectChildren(dir: root.claudeSkillsPath, source: .claudeCode(.project(root)))
     }
 
-    /// Recursively scans ~/.claude/plugins/cache/ for any SKILL.md files
+    /// Scans installed Claude plugin versions for SKILL.md files.
     func scanClaudeCodePluginSkills() -> [Skill] {
-        let dir = (home as NSString).appendingPathComponent(".claude/plugins/cache")
-        guard fileManager.fileExists(atPath: dir) else { return [] }
-
-        var skillsByIdentifier: [String: Skill] = [:]
-        guard let enumerator = fileManager.enumerator(atPath: dir) else { return [] }
-
-        while let relativePath = enumerator.nextObject() as? String {
-            guard (relativePath as NSString).lastPathComponent == "SKILL.md" else { continue }
-            let fullPath = (dir as NSString).appendingPathComponent(relativePath)
-            if let skill = parseSkillMD(at: fullPath, source: .claudeCode(.plugin)) {
-                let key = skill.triggerCommand.lowercased()
-                if let existing = skillsByIdentifier[key] {
-                    let newDate = skill.lastModified ?? .distantPast
-                    let existingDate = existing.lastModified ?? .distantPast
-                    if newDate >= existingDate {
-                        skillsByIdentifier[key] = skill
-                    }
-                } else {
-                    skillsByIdentifier[key] = skill
+        var skills: [Skill] = []
+        for dir in ClaudePluginRegistry(home: home).installedPluginPaths() {
+            guard let enumerator = fileManager.enumerator(atPath: dir) else { continue }
+            while let relativePath = enumerator.nextObject() as? String {
+                guard (relativePath as NSString).lastPathComponent == "SKILL.md" else { continue }
+                let fullPath = (dir as NSString).appendingPathComponent(relativePath)
+                if let skill = parseSkillMD(at: fullPath, source: .claudeCode(.plugin)) {
+                    skills.append(skill)
                 }
             }
         }
-
-        return Array(skillsByIdentifier.values)
+        return skills
     }
 
     // MARK: - Codex
